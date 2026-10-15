@@ -842,6 +842,8 @@ namespace lime {
 		SDL_SetiOSAnimationCallback (window->sdlWindow, 1, UpdateFrame, NULL);
 		#endif
 
+		framePacer.SetWindow (window->sdlWindow);
+
 	}
 
 
@@ -853,6 +855,15 @@ namespace lime {
 
 
 	bool SDLApplication::Update () {
+
+		// start the frame so render+swap lands just before the next compositor boundary
+		bool paced = false;
+
+		if (!inBackground) {
+
+			paced = framePacer.WaitFrameStart (frameTime.target);
+
+		}
 
 		SDL_Event event;
 
@@ -892,8 +903,15 @@ namespace lime {
 		frameTime.frame = frameTime.current - frameTime.previous;
 		frameTime.previous = frameTime.current;
 
+		if (paced) {
+
+				// pacing owns this frame: skip the time-based end-of-frame wait
+				framePacer.OnFrameEnd (frameTime.current);
+
+			}
+
 		// If the frame was faster than the target frame time, delay to cap FPS
-		if (frameTime.frame < frameTime.target) {
+		else if (frameTime.frame < frameTime.target) {
 
 			Uint64 deadline = frameTime.previous + (frameTime.target - frameTime.frame);
 

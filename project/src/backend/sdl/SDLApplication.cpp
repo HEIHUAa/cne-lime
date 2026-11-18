@@ -50,6 +50,13 @@ namespace lime {
 	SDLApplication* SDLApplication::currentApplication = 0;
 	bool inBackground = false;
 
+	// GC safepoint callback: resolved once from the main exe (the hxcpp GC
+	// exports __hxcpp_gc_yieldpoint when built with the safepoint support);
+	// null with a stock hxcpp.  Invoked at the top of every frame, BEFORE the
+	// start-of-frame sleep+busy-wait, so a pending collection runs in the
+	// pacer's dead time instead of stalling an allocation mid-frame.
+	static void (*sGcYieldpoint) () = 0;
+
 	static FrameWaitState frameWait;
 
 
@@ -869,6 +876,24 @@ namespace lime {
 
 
 	bool SDLApplication::Update () {
+
+		// GC safepoint: run a pending collection here, BEFORE the
+		// start-of-frame sleep+busy-wait, so it lands in the pacer's dead time
+		// instead of stalling an allocation mid-frame.  Resolved lazily from
+		// the main exe; the pending flag inside the GC makes this a cheap
+		// no-op when no collection is due.
+		if (!sGcYieldpoint) {
+
+			#ifdef HX_WINDOWS
+			HMODULE exe = GetModuleHandle (NULL);
+			if (exe)
+				sGcYieldpoint = (void (*) ()) GetProcAddress (exe, "__hxcpp_gc_yieldpoint");
+			#endif
+
+		}
+
+		if (sGcYieldpoint)
+			sGcYieldpoint ();
 
 		// start the frame so render+swap lands just before the next compositor boundary
 		bool paced = false;
